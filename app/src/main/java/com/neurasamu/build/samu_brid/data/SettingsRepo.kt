@@ -14,9 +14,12 @@ private val Context.ds: DataStore<Preferences> by preferencesDataStore("samu_bri
 
 data class BridgeSettings(
     val websiteUrl: String = "",
-    val modelName: String = "samu-bridge",
-    val apiToken: String = "",
-    val port: Int = 8787
+    val modelName: String = "samu",
+    val apiToken: String = "samu123456",
+    val port: Int = 8787,
+    val targetPackage: String = "",
+    val targetLabel: String = "",
+    val apkPath: String = ""
 )
 
 class SettingsRepo(private val ctx: Context) {
@@ -24,13 +27,19 @@ class SettingsRepo(private val ctx: Context) {
     private val kModel = stringPreferencesKey("model_name")
     private val kToken = stringPreferencesKey("api_token")
     private val kPort = intPreferencesKey("port")
+    private val kPkg = stringPreferencesKey("target_package")
+    private val kLabel = stringPreferencesKey("target_label")
+    private val kApk = stringPreferencesKey("apk_path")
 
     val flow: Flow<BridgeSettings> = ctx.ds.data.map { p ->
         BridgeSettings(
             websiteUrl = p[kUrl] ?: "",
-            modelName = p[kModel] ?: "samu-bridge",
-            apiToken = p[kToken] ?: "",
-            port = p[kPort] ?: 8787
+            modelName = p[kModel] ?: "samu",
+            apiToken = p[kToken] ?: "samu123456",
+            port = p[kPort] ?: 8787,
+            targetPackage = p[kPkg] ?: "",
+            targetLabel = p[kLabel] ?: "",
+            apkPath = p[kApk] ?: ""
         )
     }
 
@@ -40,6 +49,9 @@ class SettingsRepo(private val ctx: Context) {
             it[kModel] = s.modelName
             it[kToken] = s.apiToken
             it[kPort] = s.port
+            it[kPkg] = s.targetPackage
+            it[kLabel] = s.targetLabel
+            it[kApk] = s.apkPath
         }
     }
 }

@@ -25,18 +25,28 @@ import com.neurasamu.build.samu_brid.accessibility.BridgeAccessibilityService
 import com.neurasamu.build.samu_brid.data.LogRepo
 
 @Composable
-fun PreviewTab() {
+fun PreviewTab(targetPackage: String) {
     var dump by remember { mutableStateOf("") }
     var showDump by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().padding(8.dp)) {
+        Text(
+            "Target: " + if (targetPackage.isBlank()) "(not set)" else targetPackage,
+            style = MaterialTheme.typography.bodySmall
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             Button(onClick = {
-                val inst = BridgeAccessibilityService.instance
-                dump = inst?.dumpTree() ?: "(accessibility service not connected)"
+                val cached = BridgeAccessibilityService.getCachedTree(targetPackage)
+                dump = cached
+                    ?: "(no cached tree yet)\n\nTarget app ko kholke kuch seconds foreground me rakho,\nphir yahan wapas aake try karo."
                 showDump = true
-                LogRepo.info("Tree dump requested (${dump.length} chars)")
+                LogRepo.info("Cache dump: ${dump.length} chars")
             }) { Text("Dump target tree") }
+            Button(onClick = {
+                val inst = BridgeAccessibilityService.instance
+                dump = inst?.dumpActiveTree() ?: "(service not connected)"
+                showDump = true
+            }) { Text("Dump active") }
             Button(onClick = { showDump = false; dump = "" }) { Text("Clear") }
         }
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
@@ -49,10 +59,12 @@ fun PreviewTab() {
             )
         } else {
             Text(
-                "Preview tab.\n\n" +
-                    "- 'Dump target tree' se currently active app (jo bhi screen pe hai) ka accessibility tree dikhega.\n" +
-                    "- Ye output paste karke hum DeepSeek app ke input field aur response container ke exact view IDs dhundhenge.\n" +
-                    "- Screen mirror (Accessibility screenshot) aur live step highlight agle batch me.",
+                "Steps:\n" +
+                    "1) Bridge tab → target DeepSeek app choose karo.\n" +
+                    "2) DeepSeek app launch karo, 2-3 sec wait karo.\n" +
+                    "3) Wapas SaMu Bridge me aao, yahan 'Dump target tree' dabao.\n" +
+                    "4) Output copy karke mujhe paste karo.\n\n" +
+                    "Note: 'Dump active' sirf SaMu Bridge ka apna tree dega, isliye cache wala button use karo.",
                 style = MaterialTheme.typography.bodySmall
             )
         }

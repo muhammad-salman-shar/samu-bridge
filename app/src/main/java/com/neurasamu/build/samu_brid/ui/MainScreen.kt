@@ -65,7 +65,7 @@ fun MainScreen() {
         Box(Modifier.padding(pad).fillMaxSize()) {
             when (tab) {
                 0 -> BridgeTab(settings = settings, onSettingsChanged = { settings = it })
-                else -> PreviewTab()
+                else -> PreviewTab(targetPackage = settings.targetPackage)
             }
         }
     }

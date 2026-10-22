@@ -5,13 +5,21 @@ import android.graphics.Rect
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.neurasamu.build.samu_brid.data.LogRepo
+import java.util.concurrent.ConcurrentHashMap
 
 class BridgeAccessibilityService : AccessibilityService() {
 
     companion object {
-        @Volatile
-        var instance: BridgeAccessibilityService? = null
+        @Volatile var instance: BridgeAccessibilityService? = null
             private set
+
+        @Volatile var targetPackage: String = ""
+
+        private val treeCache = ConcurrentHashMap<String, String>()
+        private val lastCaptureAt = ConcurrentHashMap<String, Long>()
+
+        fun getCachedTree(pkg: String): String? = treeCache[pkg]
+        fun clearCache() { treeCache.clear(); lastCaptureAt.clear() }
     }
 
     override fun onServiceConnected() {
@@ -21,7 +29,16 @@ class BridgeAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // Phase 2: target-package filter + state machine yahan lagega
+        val pkg = event?.packageName?.toString() ?: return
+        if (targetPackage.isEmpty() || pkg != targetPackage) return
+        val now = System.currentTimeMillis()
+        val last = lastCaptureAt[pkg] ?: 0L
+        if (now - last < 1000L) return
+        val root = rootInActiveWindow ?: return
+        lastCaptureAt[pkg] = now
+        val sb = StringBuilder()
+        describe(root, 0, sb)
+        treeCache[pkg] = sb.toString()
     }
 
     override fun onInterrupt() {
@@ -34,8 +51,7 @@ class BridgeAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
-    /** Debug utility — active window ka tree string me dump karta hai. */
-    fun dumpTree(): String {
+    fun dumpActiveTree(): String {
         val root = rootInActiveWindow ?: return "(no active window)"
         val sb = StringBuilder()
         describe(root, 0, sb)
@@ -48,8 +64,10 @@ class BridgeAccessibilityService : AccessibilityService() {
         val r = Rect().also { n.getBoundsInScreen(it) }
         sb.append(n.className ?: "?")
         sb.append(" id=").append(n.viewIdResourceName ?: "-")
-        sb.append(" text=").append((n.text ?: n.contentDescription)?.toString() ?: "-")
+        sb.append(" text=").append((n.text ?: n.contentDescription)?.toString()?.take(120) ?: "-")
         sb.append(" bounds=").append(r.toShortString())
+        sb.append(" clickable=").append(n.isClickable)
+        sb.append(" editable=").append(n.isEditable)
         sb.append('\n')
         for (i in 0 until n.childCount) describe(n.getChild(i), depth + 1, sb)
     }

@@ -48,6 +48,10 @@ fun BridgeTab(settings: BridgeSettings, onSettingsChanged: (BridgeSettings) -> U
     LaunchedEffect(Unit) {
         accessibilityOn = AppLauncher.isAccessibilityEnabled()
     }
+    LaunchedEffect(settings.targetPackage) {
+        BridgeAccessibilityService.targetPackage = settings.targetPackage
+        if (settings.targetPackage.isNotBlank()) LogRepo.info("Service target = ${settings.targetPackage}")
+    }
 
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),

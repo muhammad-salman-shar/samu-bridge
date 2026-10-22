@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">SaMu Bridge</string>
+    <string name="accessibility_service_description">SaMu Bridge ko DeepSeek app ke input aur response read/write karne ke liye accessibility access chahiye. Sirf selected target app par kaam karta hai. Koi data bahar nahi bhejta.</string>
 </resources>

@@ -14,8 +14,7 @@ class NotificationCopyReceiver : BroadcastReceiver() {
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         cm.setPrimaryClip(ClipData.newPlainText("samu_bridge_copy", text))
         Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-        if (id != -1) {
-            NotificationHelper.cancel(context, id)
-        }
+        // Notification stays visible — user removes it manually
+        _ = id
     }
 }

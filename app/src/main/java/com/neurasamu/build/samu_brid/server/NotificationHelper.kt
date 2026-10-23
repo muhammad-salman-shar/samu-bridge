@@ -67,7 +67,7 @@ object NotificationHelper {
             .setContentIntent(openIntent)
             .addAction(replyAction)
             .addAction(copyAction)
-            .setAutoCancel(true)
+            .setAutoCancel(false)
             .build()
 
         nm.notify(id, notif)

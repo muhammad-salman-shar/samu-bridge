@@ -24,6 +24,13 @@ class BridgeHttpServer(
         val uri = session.uri
         LogRepo.info("HTTP ${session.method} $uri")
 
+        // 1) CORS preflight — bina auth ke handle karo, warna browser block
+        if (session.method == Method.OPTIONS) {
+            val pre = newFixedLengthResponse(Response.Status.OK, "text/plain", "")
+            addCorsHeaders(pre)
+            return pre
+        }
+
         if (!authOk(session)) {
             LogRepo.warn("HTTP auth rejected")
             return jsonResponse(Response.Status.UNAUTHORIZED, errorJson("invalid api token"))
@@ -40,6 +47,14 @@ class BridgeHttpServer(
             LogRepo.error("HTTP handler crash: ${t.message}")
             jsonResponse(Response.Status.INTERNAL_ERROR, errorJson("server error: ${t.message}"))
         }
+    }
+
+    private fun addCorsHeaders(res: Response) {
+        res.addHeader("Access-Control-Allow-Origin", "*")
+        res.addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        res.addHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, Origin")
+        res.addHeader("Access-Control-Max-Age", "86400")
+        res.addHeader("Access-Control-Expose-Headers", "Content-Type, Authorization")
     }
 
     override fun stop() {
@@ -119,6 +134,7 @@ class BridgeHttpServer(
         val response = newChunkedResponse(Response.Status.OK, "text/event-stream", pis)
         response.addHeader("Cache-Control", "no-cache")
         response.addHeader("Connection", "keep-alive")
+        addCorsHeaders(response)
 
         Thread {
             try {
@@ -223,6 +239,9 @@ class BridgeHttpServer(
             })
         }.toString()
 
-    private fun jsonResponse(status: Response.Status, body: String): Response =
-        newFixedLengthResponse(status, "application/json; charset=utf-8", body)
+    private fun jsonResponse(status: Response.Status, body: String): Response {
+        val res = newFixedLengthResponse(status, "application/json; charset=utf-8", body)
+        addCorsHeaders(res)
+        return res
+    }
 }

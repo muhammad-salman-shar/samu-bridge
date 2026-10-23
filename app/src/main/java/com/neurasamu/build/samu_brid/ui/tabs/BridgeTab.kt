@@ -1,15 +1,21 @@
 package com.neurasamu.build.samu_brid.ui.tabs
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -17,192 +23,134 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.neurasamu.build.samu_brid.accessibility.BridgeAccessibilityService
-import com.neurasamu.build.samu_brid.core.AppLauncher
-import com.neurasamu.build.samu_brid.core.BridgeDriver
-import com.neurasamu.build.samu_brid.core.InstalledApp
+import com.neurasamu.build.samu_brid.core.BridgePipeline
 import com.neurasamu.build.samu_brid.data.BridgeSettings
-import com.neurasamu.build.samu_brid.data.LogRepo
-import com.neurasamu.build.samu_brid.data.SettingsRepo
+import com.neurasamu.build.samu_brid.data.ChatLog
 import com.neurasamu.build.samu_brid.server.BridgeServerService
-import android.content.Intent
-import android.os.Build
-import com.neurasamu.build.samu_brid.ui.components.AppPickerSheet
-import com.neurasamu.build.samu_brid.ui.components.LogList
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
-fun BridgeTab(settings: BridgeSettings, onSettingsChanged: (BridgeSettings) -> Unit) {
+fun BridgeTab(settings: BridgeSettings) {
     val ctx = LocalContext.current
-    val repo = remember { SettingsRepo(ctx) }
     val scope = rememberCoroutineScope()
-    var showPicker by remember { mutableStateOf(false) }
-    var accessibilityOn by remember { mutableStateOf(false) }
-    var serverOn by remember { mutableStateOf(false) }
-    var testPrompt by remember { mutableStateOf("Hello, reply with a short greeting.") }
-    var lastResult by remember { mutableStateOf("") }
+    val entries by ChatLog.entries.collectAsState()
+    var input by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
-    val apps = remember { AppLauncher.listInstalled(ctx) }
+    var serverOn by remember { mutableStateOf(BridgeServerService.isRunning) }
 
-    LaunchedEffect(Unit) { accessibilityOn = AppLauncher.isAccessibilityEnabled() }
-    LaunchedEffect(settings.targetPackage) {
-        BridgeAccessibilityService.targetPackage = settings.targetPackage
-        if (settings.targetPackage.isNotBlank())
-            LogRepo.info("Service target = ${settings.targetPackage}")
+    LaunchedEffect(Unit) {
+        while (true) { serverOn = BridgeServerService.isRunning; delay(1000) }
     }
 
-    Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        Text("Bridge control", style = MaterialTheme.typography.titleMedium)
-
-        Text("Target app", style = MaterialTheme.typography.labelLarge)
-        Text(
-            if (settings.targetPackage.isBlank()) "Not selected"
-            else "${settings.targetLabel.ifBlank { "(no label)" }}\n${settings.targetPackage}",
-            style = MaterialTheme.typography.bodyMedium
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { showPicker = true }) { Text("Choose app") }
-            Button(
-                onClick = { AppLauncher.launchApp(ctx, settings.targetPackage) },
-                enabled = settings.targetPackage.isNotBlank()
-            ) { Text("Launch") }
-        }
-        HorizontalDivider()
-
-        Text("Accessibility service", style = MaterialTheme.typography.labelLarge)
-        Text(if (accessibilityOn) "ON" else "OFF", style = MaterialTheme.typography.bodyMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { AppLauncher.openAccessibilitySettings(ctx) }) { Text("Open settings") }
-            Button(onClick = {
-                accessibilityOn = AppLauncher.isAccessibilityEnabled()
-                LogRepo.info("Accessibility: ${if (accessibilityOn) "connected" else "not connected"}")
-            }) { Text("Refresh") }
-        }
-        HorizontalDivider()
-
-        Text("API", style = MaterialTheme.typography.labelLarge)
-        Text("Model: ${settings.modelName}", style = MaterialTheme.typography.bodyMedium)
-        Text(
-            "Token: " + if (settings.apiToken.isBlank()) "(empty)" else "\u2022\u2022\u2022\u2022" + settings.apiToken.takeLast(4),
-            style = MaterialTheme.typography.bodyMedium
-        )
-        Text("Port: ${settings.port}", style = MaterialTheme.typography.bodyMedium)
-        Text("Base URL: http://127.0.0.1:${settings.port}/v1", style = MaterialTheme.typography.bodySmall)
-        HorizontalDivider()
-
-        Text("Server", style = MaterialTheme.typography.labelLarge)
-        Text(
-            if (serverOn) "Running on http://127.0.0.1:${BridgeServerService.boundPort}/v1"
-            else "Stopped",
-            style = MaterialTheme.typography.bodyMedium
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = {
-                val intent = Intent(ctx, BridgeServerService::class.java).apply {
-                    if (BridgeServerService.isRunning) {
-                        action = BridgeServerService.ACTION_STOP
-                    } else {
-                        putExtra("port", settings.port)
-                        putExtra("token", settings.apiToken)
-                        putExtra("model", settings.modelName)
-                    }
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !BridgeServerService.isRunning) {
-                    ctx.startForegroundService(intent)
-                } else {
-                    ctx.startService(intent)
-                }
-                scope.launch {
-                    kotlinx.coroutines.delay(700)
-                    serverOn = BridgeServerService.isRunning
-                    LogRepo.info("Server state: running=$serverOn port=${BridgeServerService.boundPort}")
-                }
-            }) { Text(if (serverOn) "Stop server" else "Start server") }
-            Button(onClick = {
-                scope.launch {
-                    val r = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        runCatching {
-                            val u = java.net.URL("http://127.0.0.1:${settings.port}/v1/models")
-                            val c = u.openConnection() as java.net.HttpURLConnection
-                            c.setRequestProperty("Authorization", "Bearer ${settings.apiToken}")
-                            c.connectTimeout = 3000
-                            val code = c.responseCode
-                            val body = (if (code in 200..299) c.inputStream else c.errorStream)
-                                .bufferedReader().readText()
-                            "HTTP $code\n$body"
-                        }.getOrElse { "ERR: ${it.message}" }
-                    }
-                    lastResult = r
-                }
-            }) { Text("Test /v1/models") }
-        }
-        HorizontalDivider()
-
-        Text("Test driver", style = MaterialTheme.typography.labelLarge)
-        Text(
-            "DeepSeek foreground me aa jayega, message type hoga, send click hoga, response yahan dikhega.",
-            style = MaterialTheme.typography.bodySmall
-        )
-        OutlinedTextField(
-            value = testPrompt,
-            onValueChange = { testPrompt = it },
-            label = { Text("Test prompt") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(
-                onClick = {
-                    busy = true; lastResult = ""
-                    scope.launch {
-                        val r = BridgeDriver.sendPrompt(testPrompt, 60_000L)
-                        lastResult = r.getOrElse { "ERROR: ${it.message}" }
-                        busy = false
-                    }
-                },
-                enabled = !busy && accessibilityOn && settings.targetPackage.isNotBlank()
-            ) { Text(if (busy) "Sending…" else "Test send") }
-            Button(
-                onClick = { lastResult = ""; LogRepo.clear() },
-                enabled = !busy
-            ) { Text("Reset") }
-        }
-        if (lastResult.isNotBlank()) {
-            Text("Result:", style = MaterialTheme.typography.labelMedium)
+    Column(Modifier.fillMaxSize().padding(8.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(
-                lastResult,
-                fontFamily = FontFamily.Monospace,
-                fontSize = 12.sp,
-                modifier = Modifier.fillMaxWidth()
+                "Server: " + if (serverOn) "ON :${BridgeServerService.boundPort}" else "OFF",
+                color = if (serverOn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.labelMedium
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                "Target: " + settings.targetLabel.ifBlank { settings.targetPackage.ifBlank { "—" } },
+                style = MaterialTheme.typography.labelMedium
             )
         }
         HorizontalDivider()
 
-        Text("Logs", style = MaterialTheme.typography.labelLarge)
-        LogList(modifier = Modifier.height(220.dp).fillMaxWidth())
-        Spacer(Modifier.height(8.dp))
-    }
-
-    if (showPicker) {
-        AppPickerSheet(apps = apps, onDismiss = { showPicker = false }, onPick = { app: InstalledApp ->
-            scope.launch {
-                val ns = settings.copy(targetPackage = app.packageName, targetLabel = app.label)
-                repo.save(ns); onSettingsChanged(ns)
+        Box(
+            Modifier.weight(1f).fillMaxWidth().padding(top = 6.dp, bottom = 6.dp)
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                .padding(6.dp)
+        ) {
+            if (entries.isEmpty()) {
+                Text(
+                    "Output box\n\nChat app se aane wale messages (IN), driver ke responses (OUT), aur errors (ERR) yahan dikhenge.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            } else {
+                LazyColumn(Modifier.fillMaxSize()) {
+                    items(entries) { e ->
+                        val tag = when (e.kind) {
+                            ChatLog.Kind.IN -> "IN"
+                            ChatLog.Kind.OUT -> "OUT"
+                            ChatLog.Kind.ERR -> "ERR"
+                        }
+                        Text(
+                            "[$tag${if (e.source.isNotBlank()) " ${e.source}" else ""}] ${e.text}",
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 12.sp,
+                            color = when (e.kind) {
+                                ChatLog.Kind.ERR -> MaterialTheme.colorScheme.error
+                                ChatLog.Kind.OUT -> MaterialTheme.colorScheme.primary
+                                else -> MaterialTheme.colorScheme.onSurface
+                            }
+                        )
+                        HorizontalDivider(Modifier.padding(vertical = 2.dp))
+                    }
+                }
             }
-            showPicker = false
-            LogRepo.info("Target set: ${app.label} (${app.packageName})")
-        })
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            Button(onClick = {
+                val last = ChatLog.lastOut() ?: return@Button
+                val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("out", last))
+            }) { Text("Copy last") }
+            Button(onClick = {
+                val last = ChatLog.lastOut() ?: return@Button
+                input = last
+            }) { Text("Import → input") }
+            Button(onClick = { ChatLog.clear() }) { Text("Clear") }
+        }
+
+        HorizontalDivider(Modifier.padding(vertical = 6.dp))
+
+        OutlinedTextField(
+            value = input,
+            onValueChange = { input = it },
+            label = { Text("Input") },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp, max = 160.dp)
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+        ) {
+            Button(onClick = {
+                val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val t = cm.primaryClip?.getItemAt(0)?.text?.toString().orEmpty()
+                input = if (input.isBlank()) t else "$input\n$t"
+            }) { Text("Paste") }
+            Button(
+                onClick = {
+                    val p = input.trim()
+                    if (p.isBlank()) return@Button
+                    busy = true
+                    scope.launch {
+                        BridgePipeline.submit(p, "manual")
+                        busy = false
+                    }
+                    input = ""
+                },
+                enabled = !busy && input.isNotBlank()
+            ) { Text(if (busy) "Sending…" else "Send") }
+            Button(onClick = { input = "" }, enabled = !busy) { Text("Clear") }
+        }
     }
 }

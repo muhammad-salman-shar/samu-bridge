@@ -1,6 +1,7 @@
 package com.neurasamu.build.samu_brid.server
 
 import com.neurasamu.build.samu_brid.core.BridgeDriver
+import com.neurasamu.build.samu_brid.core.BridgePipeline
 import com.neurasamu.build.samu_brid.data.LogRepo
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.runBlocking
@@ -83,7 +84,7 @@ class BridgeHttpServer(
 
         return try {
             val future = queue.submit<String?> {
-                runBlocking { BridgeDriver.sendPrompt(prompt).getOrNull() }
+                runBlocking { BridgePipeline.submit(prompt, "api").getOrNull() }
             }
             val result = future.get(120, TimeUnit.SECONDS)
             if (result == null) {

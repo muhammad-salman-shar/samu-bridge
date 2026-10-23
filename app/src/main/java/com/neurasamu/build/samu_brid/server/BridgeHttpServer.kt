@@ -167,24 +167,26 @@ class BridgeHttpServer(
         return response
     }
 
-    private fun extractLastUserMessage(body: String): String {
-        val j = JSONObject(body)
-        val arr = j.optJSONArray("messages") ?: return ""
-        for (i in arr.length() - 1 downTo 0) {
-            val m = arr.optJSONObject(i) ?: continue
-            if (m.optString("role") != "user") continue
-            val c = m.opt("content") ?: continue
-            if (c is String) return c
-            if (c is JSONArray) {
-                val sb = StringBuilder()
-                for (k in 0 until c.length()) {
-                    val p = c.optJSONObject(k) ?: continue
-                    sb.append(p.optString("text", ""))
+    private fun parseMessages(body: String): List<Pair<String, String>> {
+        return try {
+            val arr = JSONObject(body).optJSONArray("messages") ?: return emptyList()
+            (0 until arr.length()).mapNotNull { i ->
+                val m = arr.optJSONObject(i) ?: return@mapNotNull null
+                val role = m.optString("role", "user")
+                val content = when (val c = m.opt("content")) {
+                    is String -> c
+                    is JSONArray -> {
+                        val sb = StringBuilder()
+                        for (k in 0 until c.length()) {
+                            sb.append(c.optJSONObject(k)?.optString("text", "") ?: "")
+                        }
+                        sb.toString()
+                    }
+                    else -> ""
                 }
-                return sb.toString()
+                role to content
             }
-        }
-        return ""
+        } catch (_: Exception) { emptyList() }
     }
 
     private fun chatCompletionJson(content: String): String {
@@ -211,52 +213,6 @@ class BridgeHttpServer(
                 put("total_tokens", pt + ct)
             })
         }.toString()
-    }
-
-
-    private fun parseMessages(body: String): List<Pair<String, String>> {
-        return try {
-            val arr = JSONObject(body).optJSONArray("messages") ?: return emptyList()
-            (0 until arr.length()).mapNotNull { i ->
-                val m = arr.optJSONObject(i) ?: return@mapNotNull null
-                val role = m.optString("role", "user")
-                val content = when (val c = m.opt("content")) {
-                    is String -> c
-                    is JSONArray -> {
-                        val sb = StringBuilder()
-                        for (k in 0 until c.length()) {
-                            sb.append(c.optJSONObject(k)?.optString("text", "") ?: "")
-                        }
-                        sb.toString()
-                    }
-                    else -> ""
-                }
-                role to content
-            }
-        } catch (_: Exception) { emptyList() }
-    }
-
-
-    private fun parseMessages(body: String): List<Pair<String, String>> {
-        return try {
-            val arr = JSONObject(body).optJSONArray("messages") ?: return emptyList()
-            (0 until arr.length()).mapNotNull { i ->
-                val m = arr.optJSONObject(i) ?: return@mapNotNull null
-                val role = m.optString("role", "user")
-                val content = when (val c = m.opt("content")) {
-                    is String -> c
-                    is JSONArray -> {
-                        val sb = StringBuilder()
-                        for (k in 0 until c.length()) {
-                            sb.append(c.optJSONObject(k)?.optString("text", "") ?: "")
-                        }
-                        sb.toString()
-                    }
-                    else -> ""
-                }
-                role to content
-            }
-        } catch (_: Exception) { emptyList() }
     }
 
     private fun errorJson(msg: String): String =

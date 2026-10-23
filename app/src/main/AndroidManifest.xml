@@ -36,5 +36,10 @@
                 <action android:name="com.neurasamu.build.samu_brid.ACTION_REPLY"/>
             </intent-filter>
         </receiver>
+        <receiver android:name=".server.NotificationCopyReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="com.neurasamu.build.samu_brid.ACTION_COPY"/>
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

@@ -22,6 +22,7 @@ object NotificationHelper {
             nm.createNotificationChannel(ch)
         }
 
+        // 1. Reply Action
         val replyIntent = Intent(ctx, NotificationReplyReceiver::class.java).apply {
             action = "com.neurasamu.build.samu_brid.ACTION_REPLY"
             putExtra("id", id)
@@ -30,14 +31,26 @@ object NotificationHelper {
             ctx, id, replyIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
         )
-
         val remoteInput = RemoteInput.Builder(KEY_REPLY)
             .setLabel("Reply to $source...")
             .build()
-
-        val action = NotificationCompat.Action.Builder(
+        val replyAction = NotificationCompat.Action.Builder(
             android.R.drawable.ic_menu_send, "Reply", replyPending
         ).addRemoteInput(remoteInput).build()
+
+        // 2. Copy Action
+        val copyIntent = Intent(ctx, NotificationCopyReceiver::class.java).apply {
+            action = "com.neurasamu.build.samu_brid.ACTION_COPY"
+            putExtra("copy_text", prompt)
+            putExtra("notif_id", id)
+        }
+        val copyPending = PendingIntent.getBroadcast(
+            ctx, id + 1000, copyIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val copyAction = NotificationCompat.Action.Builder(
+            android.R.drawable.ic_menu_save, "Copy", copyPending
+        ).build()
 
         val openIntent = PendingIntent.getActivity(
             ctx, 0, Intent(ctx, MainActivity::class.java),
@@ -52,7 +65,8 @@ object NotificationHelper {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setContentIntent(openIntent)
-            .addAction(action)
+            .addAction(replyAction)
+            .addAction(copyAction)
             .setAutoCancel(true)
             .build()
 

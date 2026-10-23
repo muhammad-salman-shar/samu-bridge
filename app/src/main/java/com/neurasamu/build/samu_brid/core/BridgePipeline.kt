@@ -27,13 +27,29 @@ object BridgePipeline {
 
     private var seq = 0L
 
-    suspend fun submit(prompt: String, source: String, context: Context? = null): Result<String> = mutex.withLock {
+    /**
+     * Full messages = list of (role, content) from client.
+     * Emits SYSTEM/CTX entries for context, IN for last user message.
+     */
+    suspend fun submit(
+        prompt: String,
+        source: String,
+        systemPrompt: String = "",
+        priorMessages: List<Pair<String, String>> = emptyList(),
+        context: Context? = null
+    ): Result<String> = mutex.withLock {
+        if (systemPrompt.isNotBlank()) ChatLog.add(ChatLog.Kind.SYSTEM, systemPrompt, source)
+        priorMessages.forEach { (role, content) ->
+            if (content.isNotBlank()) ChatLog.add(ChatLog.Kind.CTX, "[$role] $content", source)
+        }
         ChatLog.add(ChatLog.Kind.IN, prompt, source)
+
         val p = Pending(++seq, prompt, source, System.currentTimeMillis(), CompletableDeferred())
         _pending.update { it + p }
-        
+
         if (context != null) {
-            NotificationHelper.showReplyNotification(context, p.id.toInt(), prompt, source)
+            val preview = if (systemPrompt.isNotBlank()) "[agent] $prompt" else prompt
+            NotificationHelper.showReplyNotification(context, p.id.toInt(), preview, source)
         }
 
         return try {

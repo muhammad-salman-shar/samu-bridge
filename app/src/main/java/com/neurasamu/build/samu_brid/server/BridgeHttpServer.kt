@@ -78,19 +78,22 @@ class BridgeHttpServer(
             return jsonResponse(Response.Status.BAD_REQUEST, errorJson("bad json: ${e.message}"))
         }
         val isStream = j.optBoolean("stream", false)
-        
-        val prompt = try {
-            extractLastUserMessage(body)
-        } catch (e: Exception) {
-            return jsonResponse(Response.Status.BAD_REQUEST, errorJson("bad json: ${e.message}"))
-        }
-        if (prompt.isBlank()) {
+
+        val msgs = parseMessages(body)
+        val systemPrompt = msgs.filter { it.first == "system" }.joinToString("\n\n") { it.second }
+        val lastUserIdx = msgs.indexOfLast { it.first == "user" }
+        if (lastUserIdx < 0) {
             return jsonResponse(Response.Status.BAD_REQUEST, errorJson("no user message"))
         }
-        LogRepo.info("HTTP prompt ${prompt.length} chars, stream=$isStream")
+        val prompt = msgs[lastUserIdx].second
+        if (prompt.isBlank()) {
+            return jsonResponse(Response.Status.BAD_REQUEST, errorJson("empty user message"))
+        }
+        val prior = msgs.take(lastUserIdx).filter { it.first != "system" }
+        LogRepo.info("HTTP prompt ${prompt.length}c, stream=$isStream, sys=${systemPrompt.length}c, prior=${prior.size}")
 
         val future = queue.submit<String?> {
-            runBlocking { BridgePipeline.submit(prompt, "api", ctx).getOrNull() }
+            runBlocking { BridgePipeline.submit(prompt, "api", systemPrompt, prior, ctx).getOrNull() }
         }
 
         return if (isStream) {
@@ -208,6 +211,29 @@ class BridgeHttpServer(
                 put("total_tokens", pt + ct)
             })
         }.toString()
+    }
+
+
+    private fun parseMessages(body: String): List<Pair<String, String>> {
+        return try {
+            val arr = JSONObject(body).optJSONArray("messages") ?: return emptyList()
+            (0 until arr.length()).mapNotNull { i ->
+                val m = arr.optJSONObject(i) ?: return@mapNotNull null
+                val role = m.optString("role", "user")
+                val content = when (val c = m.opt("content")) {
+                    is String -> c
+                    is JSONArray -> {
+                        val sb = StringBuilder()
+                        for (k in 0 until c.length()) {
+                            sb.append(c.optJSONObject(k)?.optString("text", "") ?: "")
+                        }
+                        sb.toString()
+                    }
+                    else -> ""
+                }
+                role to content
+            }
+        } catch (_: Exception) { emptyList() }
     }
 
     private fun errorJson(msg: String): String =

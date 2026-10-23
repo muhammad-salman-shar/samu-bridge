@@ -57,6 +57,7 @@ fun BridgeTab(settings: BridgeSettings) {
     }
 
     val hasPending = pending.isNotEmpty()
+    val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
 
     Column(Modifier.fillMaxSize().padding(8.dp)) {
         Row(
@@ -84,7 +85,7 @@ fun BridgeTab(settings: BridgeSettings) {
         ) {
             if (entries.isEmpty()) {
                 Text(
-                    "Output box\n\nSamu Chat se jo bhi message aayega yahan dikhega.\nTab input box me reply likh ke Send dabao — wapas Samu Chat me chala jayega.",
+                    "Output box.\n\nSystem prompt (agent instructions) [SYS], conversation context [CTX], incoming [IN], outgoing [OUT] yahan dikhega.\n\nAgent se kaam karwane ke liye: 'Copy Request' dabao, external AI (ChatGPT/Gemini) me paste karo, uske instructions copy karke input box me paste karo, Send dabao.",
                     style = MaterialTheme.typography.bodySmall
                 )
             } else {
@@ -94,17 +95,22 @@ fun BridgeTab(settings: BridgeSettings) {
             }
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
             Button(onClick = {
                 val last = ChatLog.lastOut() ?: return@Button
-                val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 cm.setPrimaryClip(ClipData.newPlainText("out", last))
-            }) { Text("Copy last") }
+            }) { Text("Copy last", fontSize = 12.sp) }
+            Button(onClick = {
+                cm.setPrimaryClip(ClipData.newPlainText("ctx", ChatLog.contextSnapshot()))
+            }) { Text("Copy Request", fontSize = 12.sp) }
             Button(onClick = {
                 val last = ChatLog.lastOut() ?: return@Button
                 input = last
-            }) { Text("Import → input") }
-            Button(onClick = { ChatLog.clear() }) { Text("Clear") }
+            }) { Text("Import", fontSize = 12.sp) }
+            Button(onClick = { ChatLog.clear() }) { Text("Clear", fontSize = 12.sp) }
         }
 
         HorizontalDivider(Modifier.padding(vertical = 6.dp))
@@ -130,7 +136,6 @@ fun BridgeTab(settings: BridgeSettings) {
             modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
         ) {
             Button(onClick = {
-                val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 val t = cm.primaryClip?.getItemAt(0)?.text?.toString().orEmpty()
                 input = if (input.isBlank()) t else "$input\n$t"
             }) { Text("Paste") }
@@ -151,18 +156,18 @@ fun BridgeTab(settings: BridgeSettings) {
 
 @Composable
 private fun EntryRow(e: ChatLog.Entry) {
-    val tag = when (e.kind) {
-        ChatLog.Kind.IN -> "IN"; ChatLog.Kind.OUT -> "OUT"; ChatLog.Kind.ERR -> "ERR"
+    val (tag, color) = when (e.kind) {
+        ChatLog.Kind.SYSTEM -> "SYS" to MaterialTheme.colorScheme.tertiary
+        ChatLog.Kind.CTX -> "CTX" to MaterialTheme.colorScheme.onSurfaceVariant
+        ChatLog.Kind.IN -> "IN" to MaterialTheme.colorScheme.onSurface
+        ChatLog.Kind.OUT -> "OUT" to MaterialTheme.colorScheme.primary
+        ChatLog.Kind.ERR -> "ERR" to MaterialTheme.colorScheme.error
     }
     Text(
         "[$tag${if (e.source.isNotBlank()) " ${e.source}" else ""}] ${e.text}",
         fontFamily = FontFamily.Monospace,
-        fontSize = 12.sp,
-        color = when (e.kind) {
-            ChatLog.Kind.ERR -> MaterialTheme.colorScheme.error
-            ChatLog.Kind.OUT -> MaterialTheme.colorScheme.primary
-            else -> MaterialTheme.colorScheme.onSurface
-        }
+        fontSize = 11.sp,
+        color = color
     )
     HorizontalDivider(Modifier.padding(vertical = 2.dp))
 }

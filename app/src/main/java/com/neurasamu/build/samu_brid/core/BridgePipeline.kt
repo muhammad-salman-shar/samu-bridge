@@ -48,8 +48,7 @@ object BridgePipeline {
         _pending.update { it + p }
 
         if (context != null) {
-            val preview = if (systemPrompt.isNotBlank()) "[agent] $prompt" else prompt
-            NotificationHelper.showReplyNotification(context, p.id.toInt(), preview, source)
+            NotificationHelper.showReplyNotification(context, p.id.toInt(), prompt, source)
         }
 
         return try {

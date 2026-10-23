@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.neurasamu.build.samu_brid.data.BridgeSettings
 import com.neurasamu.build.samu_brid.data.SettingsRepo
+import com.neurasamu.build.samu_brid.accessibility.BridgeAccessibilityService
 import com.neurasamu.build.samu_brid.ui.components.BridgeTopBar
 import com.neurasamu.build.samu_brid.ui.tabs.BridgeTab
 import com.neurasamu.build.samu_brid.ui.tabs.PreviewTab
@@ -36,7 +37,13 @@ fun MainScreen() {
     var tab by remember { mutableStateOf(0) }
     var settings by remember { mutableStateOf(BridgeSettings()) }
 
-    LaunchedEffect(Unit) { repo.flow.collect { settings = it } }
+    LaunchedEffect(Unit) {
+        repo.flow.collect {
+            settings = it
+            BridgeAccessibilityService.targetPackage =
+                it.targetPackage.ifBlank { com.neurasamu.build.samu_brid.core.BridgeDriver.DEFAULT_PACKAGE }
+        }
+    }
 
     Scaffold(
         topBar = { BridgeTopBar() },

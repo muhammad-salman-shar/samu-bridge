@@ -17,8 +17,8 @@ data class BridgeSettings(
     val modelName: String = "samu",
     val apiToken: String = "samu123456",
     val port: Int = 8787,
-    val targetPackage: String = "",
-    val targetLabel: String = "",
+    val targetPackage: String = "com.deepseek.chat",
+    val targetLabel: String = "DeepSeek",
     val apkPath: String = ""
 )
 
@@ -37,8 +37,8 @@ class SettingsRepo(private val ctx: Context) {
             modelName = p[kModel] ?: "samu",
             apiToken = p[kToken] ?: "samu123456",
             port = p[kPort] ?: 8787,
-            targetPackage = p[kPkg] ?: "",
-            targetLabel = p[kLabel] ?: "",
+            targetPackage = (p[kPkg] ?: "").ifBlank { "com.deepseek.chat" },
+            targetLabel = (p[kLabel] ?: "").ifBlank { "DeepSeek" },
             apkPath = p[kApk] ?: ""
         )
     }

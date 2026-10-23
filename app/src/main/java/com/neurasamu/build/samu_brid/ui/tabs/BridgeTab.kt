@@ -32,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,6 +47,7 @@ import kotlinx.coroutines.launch
 fun BridgeTab(settings: BridgeSettings) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
+    val keyboard = LocalSoftwareKeyboardController.current
     val entries by ChatLog.entries.collectAsState()
     var input by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -78,7 +80,12 @@ fun BridgeTab(settings: BridgeSettings) {
                 .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
                 .padding(6.dp)
         ) {
-            if (entries.isEmpty()) {
+            if (busy && entries.isNotEmpty()) {
+                LazyColumn(Modifier.fillMaxSize()) {
+                    items(entries) { e -> EntryRow(e) }
+                    item { Text("[…] Waiting for DeepSeek response…", fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = MaterialTheme.colorScheme.secondary) }
+                }
+            } else if (entries.isEmpty()) {
                 Text(
                     "Output box\n\nChat app se aane wale messages (IN), driver ke responses (OUT), aur errors (ERR) yahan dikhenge.",
                     style = MaterialTheme.typography.bodySmall
@@ -141,8 +148,10 @@ fun BridgeTab(settings: BridgeSettings) {
                 onClick = {
                     val p = input.trim()
                     if (p.isBlank()) return@Button
+                    keyboard?.hide()
                     busy = true
                     scope.launch {
+                        kotlinx.coroutines.delay(300)
                         BridgePipeline.submit(p, "manual")
                         busy = false
                     }
@@ -153,4 +162,22 @@ fun BridgeTab(settings: BridgeSettings) {
             Button(onClick = { input = "" }, enabled = !busy) { Text("Clear") }
         }
     }
+}
+
+@Composable
+private fun EntryRow(e: ChatLog.Entry) {
+    val tag = when (e.kind) {
+        ChatLog.Kind.IN -> "IN"; ChatLog.Kind.OUT -> "OUT"; ChatLog.Kind.ERR -> "ERR"
+    }
+    Text(
+        "[$tag${if (e.source.isNotBlank()) " ${e.source}" else ""}] ${e.text}",
+        fontFamily = FontFamily.Monospace,
+        fontSize = 12.sp,
+        color = when (e.kind) {
+            ChatLog.Kind.ERR -> MaterialTheme.colorScheme.error
+            ChatLog.Kind.OUT -> MaterialTheme.colorScheme.primary
+            else -> MaterialTheme.colorScheme.onSurface
+        }
+    )
+    HorizontalDivider(Modifier.padding(vertical = 2.dp))
 }

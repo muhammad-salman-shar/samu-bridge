@@ -51,8 +51,9 @@ class BridgeHttpServer(
 
     private fun addCorsHeaders(res: Response) {
         res.addHeader("Access-Control-Allow-Origin", "*")
-        res.addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        res.addHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, Origin")
+        res.addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE, HEAD")
+        res.addHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, Origin, Access-Control-Request-Method, Access-Control-Request-Headers, X-Api-Key, x-api-key")
+        res.addHeader("Access-Control-Allow-Private-Network", "true")
         res.addHeader("Access-Control-Max-Age", "86400")
         res.addHeader("Access-Control-Expose-Headers", "Content-Type, Authorization")
     }

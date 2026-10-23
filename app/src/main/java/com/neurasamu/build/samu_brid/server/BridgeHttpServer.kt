@@ -236,6 +236,29 @@ class BridgeHttpServer(
         } catch (_: Exception) { emptyList() }
     }
 
+
+    private fun parseMessages(body: String): List<Pair<String, String>> {
+        return try {
+            val arr = JSONObject(body).optJSONArray("messages") ?: return emptyList()
+            (0 until arr.length()).mapNotNull { i ->
+                val m = arr.optJSONObject(i) ?: return@mapNotNull null
+                val role = m.optString("role", "user")
+                val content = when (val c = m.opt("content")) {
+                    is String -> c
+                    is JSONArray -> {
+                        val sb = StringBuilder()
+                        for (k in 0 until c.length()) {
+                            sb.append(c.optJSONObject(k)?.optString("text", "") ?: "")
+                        }
+                        sb.toString()
+                    }
+                    else -> ""
+                }
+                role to content
+            }
+        } catch (_: Exception) { emptyList() }
+    }
+
     private fun errorJson(msg: String): String =
         JSONObject().apply {
             put("error", JSONObject().apply {

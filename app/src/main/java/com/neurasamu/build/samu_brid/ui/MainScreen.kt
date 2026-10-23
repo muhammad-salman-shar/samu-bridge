@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -23,10 +22,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.neurasamu.build.samu_brid.data.BridgeSettings
 import com.neurasamu.build.samu_brid.data.SettingsRepo
-import com.neurasamu.build.samu_brid.accessibility.BridgeAccessibilityService
 import com.neurasamu.build.samu_brid.ui.components.BridgeTopBar
 import com.neurasamu.build.samu_brid.ui.tabs.BridgeTab
-import com.neurasamu.build.samu_brid.ui.tabs.PreviewTab
 import com.neurasamu.build.samu_brid.ui.tabs.SettingsTab
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -37,13 +34,7 @@ fun MainScreen() {
     var tab by remember { mutableStateOf(0) }
     var settings by remember { mutableStateOf(BridgeSettings()) }
 
-    LaunchedEffect(Unit) {
-        repo.flow.collect {
-            settings = it
-            BridgeAccessibilityService.targetPackage =
-                it.targetPackage.ifBlank { com.neurasamu.build.samu_brid.core.BridgeDriver.DEFAULT_PACKAGE }
-        }
-    }
+    LaunchedEffect(Unit) { repo.flow.collect { settings = it } }
 
     Scaffold(
         topBar = { BridgeTopBar() },
@@ -56,11 +47,6 @@ fun MainScreen() {
                 )
                 NavigationBarItem(
                     selected = tab == 1, onClick = { tab = 1 },
-                    icon = { Icon(Icons.Filled.Visibility, null) },
-                    label = { Text("Preview") }
-                )
-                NavigationBarItem(
-                    selected = tab == 2, onClick = { tab = 2 },
                     icon = { Icon(Icons.Filled.Settings, null) },
                     label = { Text("Settings") }
                 )
@@ -70,7 +56,6 @@ fun MainScreen() {
         Box(Modifier.padding(pad).fillMaxSize()) {
             when (tab) {
                 0 -> BridgeTab(settings = settings)
-                1 -> PreviewTab(targetPackage = settings.targetPackage)
                 else -> SettingsTab(settings = settings, onSettingsChanged = { settings = it })
             }
         }

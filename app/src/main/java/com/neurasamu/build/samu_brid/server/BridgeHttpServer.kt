@@ -12,6 +12,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 class BridgeHttpServer(
+    private val ctx: android.content.Context,
     port: Int,
     private val token: String,
     private val modelName: String
@@ -89,7 +90,7 @@ class BridgeHttpServer(
         LogRepo.info("HTTP prompt ${prompt.length} chars, stream=$isStream")
 
         val future = queue.submit<String?> {
-            runBlocking { BridgePipeline.submit(prompt, "api").getOrNull() }
+            runBlocking { BridgePipeline.submit(prompt, "api", ctx).getOrNull() }
         }
 
         return if (isStream) {

@@ -121,8 +121,9 @@ fun BridgeTab(settings: BridgeSettings) {
         OutlinedTextField(
             value = input,
             onValueChange = { input = it },
-            label = { Text(if (hasPending) "Reply text" else "Input (test only)") },
-            modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp, max = 160.dp)
+            label = { Text("Input") },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp),
+            maxLines = Int.MAX_VALUE
         )
         Row(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -138,15 +139,11 @@ fun BridgeTab(settings: BridgeSettings) {
                     val p = input.trim()
                     if (p.isBlank()) return@Button
                     keyboard?.hide()
-                    if (hasPending) {
-                        BridgePipeline.reply(p)
-                    } else {
-                        BridgePipeline.logManual(p)
-                    }
+                    BridgePipeline.reply(p)
                     input = ""
                 },
-                enabled = input.isNotBlank()
-            ) { Text(if (hasPending) "Send reply" else "Log") }
+                enabled = input.isNotBlank() && hasPending
+            ) { Text("Send Reply") }
             Button(onClick = { input = "" }) { Text("Clear") }
         }
     }

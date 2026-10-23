@@ -50,7 +50,7 @@ class BridgeServerService : Service() {
     private fun startServer(port: Int, token: String, model: String) {
         stopServer()
         try {
-            val s = BridgeHttpServer(port, token, model)
+            val s = BridgeHttpServer(applicationContext, port, token, model)
             s.start(fi.iki.elonen.NanoHTTPD.SOCKET_READ_TIMEOUT, false)
             server = s
             isRunning = true

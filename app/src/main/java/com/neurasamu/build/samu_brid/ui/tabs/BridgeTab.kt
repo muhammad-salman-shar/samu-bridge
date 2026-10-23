@@ -41,7 +41,6 @@ import com.neurasamu.build.samu_brid.data.BridgeSettings
 import com.neurasamu.build.samu_brid.data.ChatLog
 import com.neurasamu.build.samu_brid.server.BridgeServerService
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 @Composable
 fun BridgeTab(settings: BridgeSettings) {
@@ -49,13 +48,15 @@ fun BridgeTab(settings: BridgeSettings) {
     val scope = rememberCoroutineScope()
     val keyboard = LocalSoftwareKeyboardController.current
     val entries by ChatLog.entries.collectAsState()
+    val pending by BridgePipeline.pending.collectAsState()
     var input by remember { mutableStateOf("") }
-    var busy by remember { mutableStateOf(false) }
     var serverOn by remember { mutableStateOf(BridgeServerService.isRunning) }
 
     LaunchedEffect(Unit) {
         while (true) { serverOn = BridgeServerService.isRunning; delay(1000) }
     }
+
+    val hasPending = pending.isNotEmpty()
 
     Column(Modifier.fillMaxSize().padding(8.dp)) {
         Row(
@@ -69,7 +70,8 @@ fun BridgeTab(settings: BridgeSettings) {
             )
             Spacer(Modifier.weight(1f))
             Text(
-                "Target: " + settings.targetLabel.ifBlank { settings.targetPackage.ifBlank { "—" } },
+                if (hasPending) "PENDING: ${pending.size}" else "idle",
+                color = if (hasPending) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.labelMedium
             )
         }
@@ -80,36 +82,14 @@ fun BridgeTab(settings: BridgeSettings) {
                 .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
                 .padding(6.dp)
         ) {
-            if (busy && entries.isNotEmpty()) {
-                LazyColumn(Modifier.fillMaxSize()) {
-                    items(entries) { e -> EntryRow(e) }
-                    item { Text("[…] Waiting for DeepSeek response…", fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = MaterialTheme.colorScheme.secondary) }
-                }
-            } else if (entries.isEmpty()) {
+            if (entries.isEmpty()) {
                 Text(
-                    "Output box\n\nChat app se aane wale messages (IN), driver ke responses (OUT), aur errors (ERR) yahan dikhenge.",
+                    "Output box\n\nSamu Chat se jo bhi message aayega yahan dikhega.\nTab input box me reply likh ke Send dabao — wapas Samu Chat me chala jayega.",
                     style = MaterialTheme.typography.bodySmall
                 )
             } else {
                 LazyColumn(Modifier.fillMaxSize()) {
-                    items(entries) { e ->
-                        val tag = when (e.kind) {
-                            ChatLog.Kind.IN -> "IN"
-                            ChatLog.Kind.OUT -> "OUT"
-                            ChatLog.Kind.ERR -> "ERR"
-                        }
-                        Text(
-                            "[$tag${if (e.source.isNotBlank()) " ${e.source}" else ""}] ${e.text}",
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 12.sp,
-                            color = when (e.kind) {
-                                ChatLog.Kind.ERR -> MaterialTheme.colorScheme.error
-                                ChatLog.Kind.OUT -> MaterialTheme.colorScheme.primary
-                                else -> MaterialTheme.colorScheme.onSurface
-                            }
-                        )
-                        HorizontalDivider(Modifier.padding(vertical = 2.dp))
-                    }
+                    items(entries) { e -> EntryRow(e) }
                 }
             }
         }
@@ -129,10 +109,19 @@ fun BridgeTab(settings: BridgeSettings) {
 
         HorizontalDivider(Modifier.padding(vertical = 6.dp))
 
+        if (hasPending) {
+            val p = pending.first()
+            Text(
+                "Reply to: [${p.source}] ${p.prompt.take(120)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.tertiary
+            )
+        }
+
         OutlinedTextField(
             value = input,
             onValueChange = { input = it },
-            label = { Text("Input") },
+            label = { Text(if (hasPending) "Reply text" else "Input (test only)") },
             modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp, max = 160.dp)
         )
         Row(
@@ -149,17 +138,16 @@ fun BridgeTab(settings: BridgeSettings) {
                     val p = input.trim()
                     if (p.isBlank()) return@Button
                     keyboard?.hide()
-                    busy = true
-                    scope.launch {
-                        kotlinx.coroutines.delay(300)
-                        BridgePipeline.submit(p, "manual")
-                        busy = false
+                    if (hasPending) {
+                        BridgePipeline.reply(p)
+                    } else {
+                        BridgePipeline.logManual(p)
                     }
                     input = ""
                 },
-                enabled = !busy && input.isNotBlank()
-            ) { Text(if (busy) "Sending…" else "Send") }
-            Button(onClick = { input = "" }, enabled = !busy) { Text("Clear") }
+                enabled = input.isNotBlank()
+            ) { Text(if (hasPending) "Send reply" else "Log") }
+            Button(onClick = { input = "" }) { Text("Clear") }
         }
     }
 }

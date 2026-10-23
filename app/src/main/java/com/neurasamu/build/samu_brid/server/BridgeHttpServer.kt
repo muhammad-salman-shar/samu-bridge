@@ -86,7 +86,7 @@ class BridgeHttpServer(
             val future = queue.submit<String?> {
                 runBlocking { BridgePipeline.submit(prompt, "api").getOrNull() }
             }
-            val result = future.get(200, TimeUnit.SECONDS)
+            val result = future.get(320, TimeUnit.SECONDS)
             if (result == null) {
                 jsonResponse(Response.Status.INTERNAL_ERROR, errorJson("driver failed (see logs)"))
             } else {

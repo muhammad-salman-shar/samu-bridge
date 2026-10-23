@@ -130,11 +130,6 @@ fun BridgeTab(settings: BridgeSettings, onSettingsChanged: (BridgeSettings) -> U
                         val r = BridgeDriver.sendPrompt(testPrompt, 60_000L)
                         lastResult = r.getOrElse { "ERROR: ${it.message}" }
                         busy = false
-                        // Bring SaMu Bridge to front to see result
-                        ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)?.let {
-                            it.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-                            ctx.startActivity(it)
-                        }
                     }
                 },
                 enabled = !busy && accessibilityOn && settings.targetPackage.isNotBlank()

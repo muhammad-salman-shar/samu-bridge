@@ -1,71 +1,98 @@
 package com.neurasamu.build.samu_brid.ui.tabs
 
+import android.graphics.Bitmap
+import android.os.Build
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.neurasamu.build.samu_brid.accessibility.BridgeAccessibilityService
-import com.neurasamu.build.samu_brid.data.LogRepo
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withTimeoutOrNull
 
 @Composable
 fun PreviewTab(targetPackage: String) {
-    var dump by remember { mutableStateOf("") }
-    var showDump by remember { mutableStateOf(false) }
+    var bitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var loading by remember { mutableStateOf(false) }
+    var err by remember { mutableStateOf<String?>(null) }
+    var live by remember { mutableStateOf(true) }
+
+    LaunchedEffect(targetPackage, live) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            err = "Screen mirror requires Android 11+ (API 30)."
+            return@LaunchedEffect
+        }
+        while (isActive && live) {
+            val svc = BridgeAccessibilityService.instance
+            if (svc == null) { err = "Accessibility service not connected"; delay(1500); continue }
+            loading = bitmap == null
+            val bmp = withTimeoutOrNull(3000) { svc.takeScreenshotBitmap() }
+            if (bmp != null) {
+                bitmap = bmp
+                err = null
+            } else if (bitmap == null) {
+                err = "Screenshot failed or timed out"
+            }
+            loading = false
+            delay(1200)
+        }
+    }
 
     Column(Modifier.fillMaxSize().padding(8.dp)) {
         Text(
             "Target: " + if (targetPackage.isBlank()) "(not set)" else targetPackage,
             style = MaterialTheme.typography.bodySmall
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Button(onClick = {
-                val cached = BridgeAccessibilityService.getCachedTree(targetPackage)
-                dump = cached
-                    ?: "(no cached tree yet)\n\nTarget app ko kholke kuch seconds foreground me rakho,\nphir yahan wapas aake try karo."
-                showDump = true
-                LogRepo.info("Cache dump: ${dump.length} chars")
-            }) { Text("Dump target tree") }
-            Button(onClick = {
-                val inst = BridgeAccessibilityService.instance
-                dump = inst?.dumpActiveTree() ?: "(service not connected)"
-                showDump = true
-            }) { Text("Dump active") }
-            Button(onClick = { showDump = false; dump = "" }) { Text("Clear") }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 6.dp)) {
+            Button(onClick = { live = !live }) { Text(if (live) "Pause" else "Resume") }
+            Button(onClick = { bitmap = null; err = null; live = true }) { Text("Refresh") }
         }
-        HorizontalDivider(Modifier.padding(vertical = 8.dp))
-        if (showDump) {
-            Text(
-                dump,
-                fontFamily = FontFamily.Monospace,
-                fontSize = 11.sp,
-                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+        HorizontalDivider()
+
+        val b = bitmap
+        if (b != null) {
+            val ratio = b.width.toFloat() / b.height.toFloat().coerceAtLeast(1f)
+            Image(
+                bitmap = b.asImageBitmap(),
+                contentDescription = "Live screen",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxWidth().aspectRatio(ratio)
             )
+        } else if (loading) {
+            Box(Modifier.fillMaxWidth().aspectRatio(0.5f), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else if (err != null) {
+            Text(err ?: "", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(8.dp))
         } else {
             Text(
-                "Steps:\n" +
-                    "1) Bridge tab → target DeepSeek app choose karo.\n" +
-                    "2) DeepSeek app launch karo, 2-3 sec wait karo.\n" +
-                    "3) Wapas SaMu Bridge me aao, yahan 'Dump target tree' dabao.\n" +
-                    "4) Output copy karke mujhe paste karo.\n\n" +
-                    "Note: 'Dump active' sirf SaMu Bridge ka apna tree dega, isliye cache wala button use karo.",
-                style = MaterialTheme.typography.bodySmall
+                "Live mirror starting...\nMake sure target app is foreground.\nAndroid 11+ required.",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(8.dp)
             )
         }
     }

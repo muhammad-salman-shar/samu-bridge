@@ -2,12 +2,19 @@ package com.neurasamu.build.samu_brid.accessibility
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.graphics.Bitmap
 import android.graphics.Path
 import android.graphics.Rect
+import android.hardware.HardwareBuffer
+import android.os.Build
+import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import androidx.core.content.ContextCompat
 import com.neurasamu.build.samu_brid.data.LogRepo
+import kotlinx.coroutines.suspendCancellableCoroutine
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.coroutines.resume
 
 class BridgeAccessibilityService : AccessibilityService() {
 
@@ -55,43 +62,46 @@ class BridgeAccessibilityService : AccessibilityService() {
         return null
     }
 
-    /** Flutter-aware: multiple heuristics. */
+    fun getFocusedInput(): AccessibilityNodeInfo? {
+        val root = getTargetRoot() ?: return null
+        return root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            ?: root.findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY)
+    }
+
     fun findInputNode(): AccessibilityNodeInfo? {
         val root = getTargetRoot() ?: return null
         try { root.refresh() } catch (_: Exception) {}
 
-        // 1. TRUE editable (native apps)
-        searchTree(root) { it.isEditable }?.let { LogRepo.info("input: editable"); return it }
+        searchTree(root) { it.isEditable }?.let { return it }
+        searchTree(root) { it.className?.toString()?.contains("EditText", true) == true }?.let { return it }
 
-        // 2. EditText class
-        searchTree(root) {
-            it.className?.toString()?.contains("EditText", true) == true
-        }?.let { LogRepo.info("input: EditText"); return it }
-
-        // 3. Hint text contains "ask" or "message" (DeepSeek placeholder: "Ask anything...")
         searchTree(root) {
             val h = it.hintText?.toString().orEmpty()
             val t = it.text?.toString().orEmpty()
             h.contains("ask", true) || h.contains("message", true) ||
-                (t.contains("ask anything", true) && it.isClickable)
-        }?.let { LogRepo.info("input: hint matched"); return it }
+                (t.contains("ask anything", true) && (it.isClickable || it.isFocusable))
+        }?.let { return it }
 
-        // 4. Content description
         searchTree(root) {
             val d = it.contentDescription?.toString().orEmpty()
             (d.contains("message", true) || d.contains("type", true) || d.contains("ask", true)) &&
                 (it.isClickable || it.isFocusable)
-        }?.let { LogRepo.info("input: desc matched"); return it }
+        }?.let { return it }
 
-        // 5. Bottom-half focusable+clickable View (Flutter signature)
         val screen = getScreenBounds()
-        searchTree(root) { n ->
+        return searchTree(root) { n ->
             if (!n.isFocusable && !n.isClickable) return@searchTree false
             val b = Rect(); n.getBoundsInScreen(b)
-            b.centerY() > screen.height() * 0.6 && b.width() > 200 && b.height() > 40
-        }?.let { LogRepo.info("input: bottom-half view"); return it }
+            b.centerY() > screen.height() * 0.55 && b.width() > 200 && b.height() > 40
+        }
+    }
 
-        return null
+    /** Deepest descendant that looks editable, walking from candidate. */
+    fun findEditableIn(candidate: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        if (candidate == null) return null
+        try { candidate.refresh() } catch (_: Exception) {}
+        if (candidate.isEditable) return candidate
+        return searchTree(candidate) { it.isEditable || it.className?.toString()?.contains("EditText", true) == true }
     }
 
     fun findSendButton(): AccessibilityNodeInfo? {
@@ -110,6 +120,15 @@ class BridgeAccessibilityService : AccessibilityService() {
             b.centerY() in (ib.centerY() - 80)..(ib.centerY() + 80) &&
                 b.left >= ib.right - 20 && b.left <= ib.right + 250 &&
                 b.width() in 30..250 && b.height() in 30..250
+        }
+    }
+
+    fun findPasteMenuItem(): AccessibilityNodeInfo? {
+        val root = getTargetRoot() ?: return null
+        return searchTree(root) {
+            val t = it.text?.toString().orEmpty()
+            val d = it.contentDescription?.toString().orEmpty()
+            (t.equals("paste", true) || t.contains("Paste", true) || d.contains("paste", true)) && it.isClickable
         }
     }
 
@@ -144,6 +163,54 @@ class BridgeAccessibilityService : AccessibilityService() {
             .build()
         return dispatchGesture(g, null, null)
     }
+
+    fun longPressAt(x: Float, y: Float): Boolean {
+        val path = Path().apply { moveTo(x, y) }
+        val g = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0L, 600L))
+            .build()
+        return dispatchGesture(g, null, null)
+    }
+
+    fun tapNode(n: AccessibilityNodeInfo?): Boolean {
+        if (n == null) return false
+        val b = Rect(); n.getBoundsInScreen(b)
+        if (b.width() <= 0 || b.height() <= 0) return false
+        return tapAt(b.centerX().toFloat(), b.centerY().toFloat())
+    }
+
+    /** Android 11+ screen capture. Returns null on < R or error. */
+    suspend fun takeScreenshotBitmap(): Bitmap? =
+        suspendCancellableCoroutine { cont ->
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+                cont.resume(null); return@suspendCancellableCoroutine
+            }
+            try {
+                takeScreenshot(
+                    Display.DEFAULT_DISPLAY,
+                    ContextCompat.getMainExecutor(this),
+                    object : TakeScreenshotCallback {
+                        override fun onSuccess(result: ScreenshotResult) {
+                            val bmp = try {
+                                val hb: HardwareBuffer = result.hardwareBuffer
+                                val cs = result.colorSpace
+                                Bitmap.wrapHardwareBuffer(hb, cs)?.copy(Bitmap.Config.ARGB_8888, false)
+                            } catch (_: Throwable) { null } finally {
+                                try { result.hardwareBuffer.close() } catch (_: Throwable) {}
+                            }
+                            cont.resume(bmp)
+                        }
+                        override fun onFailure(errorCode: Int) {
+                            LogRepo.warn("Screenshot failed: $errorCode")
+                            cont.resume(null)
+                        }
+                    }
+                )
+            } catch (t: Throwable) {
+                LogRepo.warn("Screenshot exception: ${t.message}")
+                cont.resume(null)
+            }
+        }
 
     fun dumpActiveTree(): String {
         val root = getTargetRoot() ?: rootInActiveWindow ?: return "(no active window)"

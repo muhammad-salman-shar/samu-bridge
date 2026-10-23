@@ -27,84 +27,119 @@ object BridgeDriver {
                 AppLauncher.launchApp(svc.applicationContext, pkg)
                 delay(1500)
 
-                // Wait for root
                 var root: AccessibilityNodeInfo? = null
                 for (i in 0 until 12) {
                     root = svc.getTargetRoot(); if (root != null) break; delay(300)
                 }
                 root ?: run {
-                    val d = svc.dumpActiveTree()
-                    LogRepo.error("Root missing. Tree:\n${d.take(1500)}")
+                    LogRepo.error("Root missing. Tree:\n${svc.dumpActiveTree().take(1500)}")
                     error("Target window not found")
                 }
 
-                delay(500)
+                delay(400)
 
-                // Try finding input directly (native/heuristic)
-                var input = svc.findInputNode()
-
-                // Flutter fallback: coordinate tap bottom-center, then retry
-                if (input == null) {
-                    LogRepo.warn("No input — trying coordinate taps (Flutter fallback)")
-                    val b = svc.getScreenBounds()
-                    svc.tapAt(b.width() * 0.4f, b.height() * 0.88f); delay(900)
-                    input = svc.findInputNode()
-                    if (input == null) {
-                        svc.tapAt(b.width() * 0.4f, b.height() * 0.93f); delay(900)
-                        input = svc.findInputNode()
-                    }
-                }
-
-                input ?: run {
-                    val d = svc.dumpActiveTree()
-                    LogRepo.error("Input still missing. Tree:\n${d.take(2500)}")
-                    error("Input field not found")
-                }
-
-                // Capture baseline AFTER tap (chat may have changed)
                 val baseline = svc.collectAllTexts()
                 LogRepo.info("Driver: baseline ${baseline.size} texts")
 
-                // Inject text
-                input.performAction(AccessibilityNodeInfo.ACTION_FOCUS); delay(200)
-                val args = Bundle().apply {
-                    putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, prompt)
-                }
-                var injected = input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
-                if (!injected) {
-                    LogRepo.warn("SET_TEXT failed — clipboard paste fallback")
-                    val cm = svc.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    cm.setPrimaryClip(ClipData.newPlainText("p", prompt)); delay(250)
-                    injected = input.performAction(AccessibilityNodeInfo.ACTION_PASTE)
-                }
-                if (!injected) error("Text injection failed")
+                if (!injectText(svc, prompt)) error("Text injection failed")
                 LogRepo.info("Driver: text injected")
-                delay(600)
 
-                // Send: try IME enter → button → coordinate
+                delay(500)
+
+                // Send
                 var sent = false
-                try { sent = input.performAction(AccessibilityNodeInfo.ACTION_CLICK); } catch (_: Exception) {}
-                // Some apps need separate send
                 val sendBtn = svc.findSendButton()
                 if (sendBtn != null && sendBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                     sent = true; LogRepo.info("Driver: send via button")
                 }
                 if (!sent) {
-                    // Fallback: tap right of input field
-                    val ib = Rect(); input.getBoundsInScreen(ib)
-                    svc.tapAt(ib.right - 30f, ib.centerY().toFloat())
-                    LogRepo.info("Driver: send via coordinate tap (${ib.right - 30}, ${ib.centerY()})")
+                    val inp = svc.findInputNode() ?: svc.getFocusedInput()
+                    if (inp != null) {
+                        val ib = Rect(); inp.getBoundsInScreen(ib)
+                        svc.tapAt(ib.right + 40f, ib.centerY().toFloat())
+                        LogRepo.info("Driver: send via coordinate tap")
+                        sent = true
+                    }
                 }
-                delay(800)
+                if (!sent) error("Send action failed")
+                delay(900)
 
-                // Post-send baseline (user message now visible)
                 val post = svc.collectAllTexts()
-
-                // Wait for response
                 val reply = svc.waitForResponse(post, timeoutMs)
                     ?: error("Timeout — no response in ${timeoutMs}ms")
                 LogRepo.info("Driver: response ${reply.length} chars")
                 reply
             }.onFailure { LogRepo.error("Driver fail: ${it.message}") }
         }
+
+    private suspend fun injectText(svc: BridgeAccessibilityService, prompt: String): Boolean {
+        // Step 1: direct hit
+        val found = svc.findInputNode()
+        svc.findEditableIn(found)?.let { n ->
+            if (trySetText(n, prompt)) { LogRepo.info("inject: SET_TEXT direct"); return true }
+        }
+        found?.let { n ->
+            if (trySetText(n, prompt)) { LogRepo.info("inject: SET_TEXT on wrapper"); return true }
+        }
+
+        // Step 2: tap the candidate (focus), wait for IME, retry
+        if (found != null) {
+            svc.tapNode(found)
+        } else {
+            val b = svc.getScreenBounds()
+            svc.tapAt(b.width() * 0.4f, b.height() * 0.88f)
+        }
+        delay(900)
+
+        svc.getFocusedInput()?.let { f ->
+            if (trySetText(f, prompt)) { LogRepo.info("inject: SET_TEXT focused"); return true }
+            if (tryPaste(f, svc, prompt)) { LogRepo.info("inject: PASTE focused"); return true }
+        }
+        svc.findInputNode()?.let { n ->
+            svc.findEditableIn(n)?.let { e -> if (trySetText(e, prompt)) { LogRepo.info("inject: SET_TEXT refind"); return true } }
+        }
+
+        // Step 3: long-press → Paste context menu
+        if (found != null) svc.tapNode(found) else {
+            val b = svc.getScreenBounds(); svc.tapAt(b.width() * 0.4f, b.height() * 0.88f)
+        }
+        delay(600)
+        val focused = svc.getFocusedInput()
+        if (focused != null) {
+            val b = Rect(); focused.getBoundsInScreen(b)
+            svc.longPressAt(b.centerX().toFloat(), b.centerY().toFloat())
+            delay(700)
+            copyToClipboard(svc.applicationContext, prompt)
+            svc.findPasteMenuItem()?.let { p ->
+                if (p.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    LogRepo.info("inject: paste menu"); return true
+                }
+            }
+        }
+        LogRepo.warn("inject: all strategies failed")
+        return false
+    }
+
+    private fun trySetText(n: AccessibilityNodeInfo, text: String): Boolean {
+        try { n.refresh() } catch (_: Exception) {}
+        n.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        val args = Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+        }
+        return try {
+            n.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+        } catch (_: Exception) { false }
+    }
+
+    private fun tryPaste(n: AccessibilityNodeInfo, svc: BridgeAccessibilityService, text: String): Boolean {
+        copyToClipboard(svc.applicationContext, text)
+        return try { n.performAction(AccessibilityNodeInfo.ACTION_PASTE) } catch (_: Exception) { false }
+    }
+
+    private fun copyToClipboard(ctx: Context, text: String) {
+        try {
+            val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText("p", text))
+        } catch (_: Exception) {}
+    }
 }

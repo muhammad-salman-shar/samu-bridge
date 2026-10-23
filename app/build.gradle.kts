@@ -46,5 +46,6 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("androidx.webkit:webkit:1.11.0")
+    implementation("org.nanohttpd:nanohttpd:2.3.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

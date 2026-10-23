@@ -1,7 +1,6 @@
 package com.neurasamu.build.samu_brid.ui.tabs
 
 import android.graphics.Bitmap
-import android.os.Build
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,10 +10,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -32,33 +28,21 @@ import androidx.compose.ui.unit.dp
 import com.neurasamu.build.samu_brid.accessibility.BridgeAccessibilityService
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.withTimeoutOrNull
 
 @Composable
 fun PreviewTab(targetPackage: String) {
     var bitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var loading by remember { mutableStateOf(false) }
-    var err by remember { mutableStateOf<String?>(null) }
+    var ageSec by remember { mutableStateOf(-1L) }
     var live by remember { mutableStateOf(true) }
 
     LaunchedEffect(targetPackage, live) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            err = "Screen mirror requires Android 11+ (API 30)."
-            return@LaunchedEffect
-        }
         while (isActive && live) {
             val svc = BridgeAccessibilityService.instance
-            if (svc == null) { err = "Accessibility service not connected"; delay(1500); continue }
-            loading = bitmap == null
-            val bmp = withTimeoutOrNull(3000) { svc.takeScreenshotBitmap() }
-            if (bmp != null) {
-                bitmap = bmp
-                err = null
-            } else if (bitmap == null) {
-                err = "Screenshot failed or timed out"
-            }
-            loading = false
-            delay(1200)
+            if (svc == null) { bitmap = null; ageSec = -1; delay(800); continue }
+            bitmap = BridgeAccessibilityService.lastTargetFrame
+            val at = BridgeAccessibilityService.lastTargetFrameAt
+            ageSec = if (at == 0L) -1 else (System.currentTimeMillis() - at) / 1000
+            delay(500)
         }
     }
 
@@ -67,9 +51,20 @@ fun PreviewTab(targetPackage: String) {
             "Target: " + if (targetPackage.isBlank()) "(not set)" else targetPackage,
             style = MaterialTheme.typography.bodySmall
         )
+        Text(
+            when {
+                ageSec < 0 -> "No frame yet — DeepSeek app foreground me kholo, 2–3 sec wait, wapas aao."
+                ageSec <= 5 -> "Live (${ageSec}s ago)"
+                else -> "STALE (${ageSec}s ago) — DeepSeek app ko foreground me kholke 2–3 sec ruko"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = if (ageSec in 0..5) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 6.dp)) {
             Button(onClick = { live = !live }) { Text(if (live) "Pause" else "Resume") }
-            Button(onClick = { bitmap = null; err = null; live = true }) { Text("Refresh") }
+            Button(onClick = {
+                bitmap = null; ageSec = -1; live = true
+            }) { Text("Clear") }
         }
         HorizontalDivider()
 
@@ -78,22 +73,17 @@ fun PreviewTab(targetPackage: String) {
             val ratio = b.width.toFloat() / b.height.toFloat().coerceAtLeast(1f)
             Image(
                 bitmap = b.asImageBitmap(),
-                contentDescription = "Live screen",
+                contentDescription = "Target app preview",
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxWidth().aspectRatio(ratio)
             )
-        } else if (loading) {
-            Box(Modifier.fillMaxWidth().aspectRatio(0.5f), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-        } else if (err != null) {
-            Text(err ?: "", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(8.dp))
         } else {
-            Text(
-                "Live mirror starting...\nMake sure target app is foreground.\nAndroid 11+ required.",
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(8.dp)
-            )
+            Box(Modifier.fillMaxWidth().aspectRatio(0.5f), contentAlignment = Alignment.Center) {
+                Text(
+                    "Preview khali hai.\n\n1) Bridge tab me 'Launch' dabao\n2) DeepSeek app load hone do\n3) 2-3 sec wait\n4) Bridge tab me wapas aake yahan dekho",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
         }
     }
 }

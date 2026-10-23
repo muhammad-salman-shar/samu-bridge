@@ -34,6 +34,9 @@ import com.neurasamu.build.samu_brid.core.InstalledApp
 import com.neurasamu.build.samu_brid.data.BridgeSettings
 import com.neurasamu.build.samu_brid.data.LogRepo
 import com.neurasamu.build.samu_brid.data.SettingsRepo
+import com.neurasamu.build.samu_brid.server.BridgeServerService
+import android.content.Intent
+import android.os.Build
 import com.neurasamu.build.samu_brid.ui.components.AppPickerSheet
 import com.neurasamu.build.samu_brid.ui.components.LogList
 import kotlinx.coroutines.launch
@@ -102,13 +105,50 @@ fun BridgeTab(settings: BridgeSettings, onSettingsChanged: (BridgeSettings) -> U
 
         Text("Server", style = MaterialTheme.typography.labelLarge)
         Text(
-            if (serverOn) "Running (placeholder — real HTTP Batch G2)" else "Stopped",
+            if (serverOn) "Running on http://127.0.0.1:${BridgeServerService.boundPort}/v1"
+            else "Stopped",
             style = MaterialTheme.typography.bodyMedium
         )
-        Button(onClick = {
-            serverOn = !serverOn
-            LogRepo.info(if (serverOn) "Server start requested (stub)" else "Server stop requested")
-        }) { Text(if (serverOn) "Stop server" else "Start server") }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = {
+                val intent = Intent(ctx, BridgeServerService::class.java).apply {
+                    if (BridgeServerService.isRunning) {
+                        action = BridgeServerService.ACTION_STOP
+                    } else {
+                        putExtra("port", settings.port)
+                        putExtra("token", settings.apiToken)
+                        putExtra("model", settings.modelName)
+                    }
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !BridgeServerService.isRunning) {
+                    ctx.startForegroundService(intent)
+                } else {
+                    ctx.startService(intent)
+                }
+                scope.launch {
+                    kotlinx.coroutines.delay(700)
+                    serverOn = BridgeServerService.isRunning
+                    LogRepo.info("Server state: running=$serverOn port=${BridgeServerService.boundPort}")
+                }
+            }) { Text(if (serverOn) "Stop server" else "Start server") }
+            Button(onClick = {
+                scope.launch {
+                    val r = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        runCatching {
+                            val u = java.net.URL("http://127.0.0.1:${settings.port}/v1/models")
+                            val c = u.openConnection() as java.net.HttpURLConnection
+                            c.setRequestProperty("Authorization", "Bearer ${settings.apiToken}")
+                            c.connectTimeout = 3000
+                            val code = c.responseCode
+                            val body = (if (code in 200..299) c.inputStream else c.errorStream)
+                                .bufferedReader().readText()
+                            "HTTP $code\n$body"
+                        }.getOrElse { "ERR: ${it.message}" }
+                    }
+                    lastResult = r
+                }
+            }) { Text("Test /v1/models") }
+        }
         HorizontalDivider()
 
         Text("Test driver", style = MaterialTheme.typography.labelLarge)

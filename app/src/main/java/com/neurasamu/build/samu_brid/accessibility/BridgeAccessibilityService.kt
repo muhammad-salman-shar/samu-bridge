@@ -25,12 +25,52 @@ class BridgeAccessibilityService : AccessibilityService() {
         private val treeCache = ConcurrentHashMap<String, String>()
         private val lastCaptureAt = ConcurrentHashMap<String, Long>()
         fun getCachedTree(pkg: String): String? = treeCache[pkg]
+
+        @Volatile var lastTargetFrame: Bitmap? = null
+            private set
+        @Volatile var lastTargetFrameAt: Long = 0L
+            private set
     }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
         LogRepo.info("AccessibilityService connected")
+        startCaptureLoop()
+    }
+
+    private var captureThread: Thread? = null
+    private fun startCaptureLoop() {
+        if (captureThread != null) return
+        captureThread = Thread {
+            while (instance != null) {
+                try {
+                    if (targetPackage.isNotBlank() && getTargetRoot() != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        val bmp = kotlinx.coroutines.runBlocking { takeScreenshotBitmap() }
+                        if (bmp != null) {
+                            val cropped = cropToTarget(bmp)
+                            if (cropped != null) {
+                                lastTargetFrame = cropped
+                                lastTargetFrameAt = System.currentTimeMillis()
+                            }
+                        }
+                    }
+                } catch (_: Throwable) {}
+                try { Thread.sleep(2000) } catch (_: InterruptedException) { break }
+            }
+        }.also { it.isDaemon = true; it.start() }
+    }
+
+    private fun cropToTarget(full: Bitmap): Bitmap? {
+        val root = getTargetRoot() ?: return null
+        val b = Rect(); root.getBoundsInScreen(b)
+        if (b.width() <= 0 || b.height() <= 0) return full
+        val x = b.left.coerceIn(0, (full.width - 1).coerceAtLeast(0))
+        val y = b.top.coerceIn(0, (full.height - 1).coerceAtLeast(0))
+        val w = (b.width()).coerceAtMost(full.width - x)
+        val h = (b.height()).coerceAtMost(full.height - y)
+        if (w <= 0 || h <= 0) return null
+        return try { Bitmap.createBitmap(full, x, y, w, h) } catch (_: Throwable) { null }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -44,7 +84,13 @@ class BridgeAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() { LogRepo.warn("AccessibilityService interrupted") }
-    override fun onDestroy() { instance = null; LogRepo.info("AccessibilityService destroyed"); super.onDestroy() }
+    override fun onDestroy() {
+        instance = null
+        captureThread?.interrupt()
+        captureThread = null
+        LogRepo.info("AccessibilityService destroyed")
+        super.onDestroy()
+    }
 
     fun getScreenBounds(): Rect {
         val dm = resources.displayMetrics

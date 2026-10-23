@@ -9,6 +9,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.io.PipedInputStream
+import java.io.PipedOutputStream
 
 class BridgeHttpServer(
     port: Int,
@@ -72,6 +74,11 @@ class BridgeHttpServer(
             return jsonResponse(Response.Status.BAD_REQUEST, errorJson("bad body: ${e.message}"))
         }
         val body = map["postData"] ?: ""
+        val j = try { JSONObject(body) } catch (e: Exception) {
+            return jsonResponse(Response.Status.BAD_REQUEST, errorJson("bad json: ${e.message}"))
+        }
+        val isStream = j.optBoolean("stream", false)
+        
         val prompt = try {
             extractLastUserMessage(body)
         } catch (e: Exception) {
@@ -80,21 +87,81 @@ class BridgeHttpServer(
         if (prompt.isBlank()) {
             return jsonResponse(Response.Status.BAD_REQUEST, errorJson("no user message"))
         }
-        LogRepo.info("HTTP prompt ${prompt.length} chars")
+        LogRepo.info("HTTP prompt ${prompt.length} chars, stream=$isStream")
 
-        return try {
-            val future = queue.submit<String?> {
-                runBlocking { BridgePipeline.submit(prompt, "api").getOrNull() }
-            }
-            val result = future.get(320, TimeUnit.SECONDS)
-            if (result == null) {
-                jsonResponse(Response.Status.INTERNAL_ERROR, errorJson("driver failed (see logs)"))
-            } else {
-                jsonResponse(Response.Status.OK, chatCompletionJson(result))
-            }
-        } catch (e: Exception) {
-            jsonResponse(Response.Status.INTERNAL_ERROR, errorJson("queue error: ${e.message}"))
+        val future = queue.submit<String?> {
+            runBlocking { BridgePipeline.submit(prompt, "api").getOrNull() }
         }
+
+        return if (isStream) {
+            streamChatCompletion(future)
+        } else {
+            try {
+                val result = future.get(320, TimeUnit.SECONDS)
+                if (result == null) {
+                    jsonResponse(Response.Status.INTERNAL_ERROR, errorJson("driver failed (see logs)"))
+                } else {
+                    LogRepo.info("HTTP returning JSON response")
+                    jsonResponse(Response.Status.OK, chatCompletionJson(result))
+                }
+            } catch (e: Exception) {
+                jsonResponse(Response.Status.INTERNAL_ERROR, errorJson("queue error: ${e.message}"))
+            }
+        }
+    }
+
+    private fun streamChatCompletion(future: java.util.concurrent.Future<String?>): Response {
+        val pos = PipedOutputStream()
+        val pis = PipedInputStream(pos)
+        val response = newChunkedResponse(Response.Status.OK, "text/event-stream", pis)
+        response.addHeader("Cache-Control", "no-cache")
+        response.addHeader("Connection", "keep-alive")
+
+        Thread {
+            try {
+                val writer = pos.bufferedWriter()
+                val chunkId = "chatcmpl-" + System.currentTimeMillis()
+                val created = System.currentTimeMillis() / 1000
+
+                fun sendChunk(delta: String, finishReason: String?) {
+                    val fr = if (finishReason == null) "null" else "\"$finishReason\""
+                    writer.write("data: {\"id\":\"$chunkId\",\"object\":\"chat.completion.chunk\",\"created\":$created,\"model\":\"$modelName\",\"choices\":[{\"index\":0,\"delta\":$delta,\"finish_reason\":$fr}]}\n\n")
+                    writer.flush()
+                }
+
+                sendChunk("{\"role\":\"assistant\",\"content\":\"\"}", null)
+
+                var finished = false
+                val heartbeat = Thread {
+                    while (!finished) {
+                        try {
+                            Thread.sleep(3000)
+                            if (!finished) sendChunk("{}", null)
+                        } catch (_: Exception) { break }
+                    }
+                }
+                heartbeat.start()
+
+                val result = future.get(320, TimeUnit.SECONDS)
+                finished = true
+                heartbeat.interrupt()
+
+                if (result == null) {
+                    writer.write("data: {\"error\":{\"message\":\"driver failed\"}}\n\n")
+                } else {
+                    val escaped = JSONObject.quote(result)
+                    sendChunk("{\"content\":$escaped}", null)
+                    sendChunk("{}", "stop")
+                }
+                writer.write("data: [DONE]\n\n")
+                writer.flush()
+                pos.close()
+            } catch (e: Exception) {
+                try { pos.close() } catch (_: Exception) {}
+            }
+        }.start()
+
+        return response
     }
 
     private fun extractLastUserMessage(body: String): String {
@@ -118,6 +185,8 @@ class BridgeHttpServer(
     }
 
     private fun chatCompletionJson(content: String): String {
+        val pt = 15 + content.length / 4
+        val ct = content.length / 4
         return JSONObject().apply {
             put("id", "chatcmpl-" + System.currentTimeMillis())
             put("object", "chat.completion")
@@ -134,9 +203,9 @@ class BridgeHttpServer(
                 })
             })
             put("usage", JSONObject().apply {
-                put("prompt_tokens", 0)
-                put("completion_tokens", 0)
-                put("total_tokens", 0)
+                put("prompt_tokens", pt)
+                put("completion_tokens", ct)
+                put("total_tokens", pt + ct)
             })
         }.toString()
     }
@@ -150,5 +219,5 @@ class BridgeHttpServer(
         }.toString()
 
     private fun jsonResponse(status: Response.Status, body: String): Response =
-        newFixedLengthResponse(status, "application/json", body)
+        newFixedLengthResponse(status, "application/json; charset=utf-8", body)
 }
